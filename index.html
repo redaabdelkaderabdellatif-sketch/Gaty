@@ -519,6 +519,7 @@
   <button class="tab-btn active" id="tabbtn-transfer" onclick="switchTab('transfer')">📦 Inventory Transfer</button>
   <button class="tab-btn" id="tabbtn-reconcile" onclick="switchTab('reconcile')">⚖️ Reconcile Two Sheets</button>
   <button class="tab-btn" id="tabbtn-namematch" onclick="switchTab('namematch')">🔄 Match Tool Sheet vs Final</button>
+  <button class="tab-btn" id="tabbtn-uncosted" onclick="switchTab('uncosted')">📋 Uncosted Orders</button>
 </div>
 
 <div id="tab-transfer" class="tab-page">
@@ -804,6 +805,65 @@
 </div>
 <!-- /tab-namematch -->
 
+<div id="tab-uncosted" class="tab-page" style="display:none">
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title"><span class="dot dot-blue"></span>Final Sheet (الشيت النهائي)</div>
+      <div class="upload-zone" id="zone-uc-final">
+        <input type="file" id="file-uc-final" accept=".xlsx,.xls" onchange="handleUncostedFile('final', this)">
+        <div class="upload-icon">📄</div>
+        <div class="upload-label"><strong>Drag & drop</strong> or click to choose<br>The downloaded "النهائي" file — reads the رقم المرجع column</div>
+        <div class="file-name" id="fname-uc-final"></div>
+      </div>
+      <div class="stats-row" id="stats-uc-final"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="dot dot-red"></span>Finished Cost Sheet (شيت التكلفة التامة)</div>
+      <div class="upload-zone" id="zone-uc-cost">
+        <input type="file" id="file-uc-cost" accept=".xlsx,.xls" onchange="handleUncostedFile('cost', this)">
+        <div class="upload-icon">📄</div>
+        <div class="upload-label"><strong>Drag & drop</strong> or click to choose<br>Reads the sales order / showroom number column</div>
+        <div class="file-name" id="fname-uc-cost"></div>
+      </div>
+      <div class="stats-row" id="stats-uc-cost"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-title"><span class="dot dot-green"></span>Order Status Workbook (شيت حالة الطلب)</div>
+    <div class="upload-zone" id="zone-uc-status">
+      <input type="file" id="file-uc-status" accept=".xlsx,.xls" onchange="handleUncostedFile('status', this)">
+      <div class="upload-icon">📄</div>
+      <div class="upload-label"><strong>Drag & drop</strong> or click to choose<br>Any workbook with sheets containing Work Order, Delivery date, Packing, Payment Mode, Email Date, Delivery Status — every matching sheet is scanned</div>
+      <div class="file-name" id="fname-uc-status"></div>
+    </div>
+    <div class="stats-row" id="stats-uc-status"></div>
+    <div class="log-box" id="uncosted-log" style="margin-top:12px">Waiting for all 3 files...</div>
+  </div>
+
+  <div class="card" id="uncosted-result-card" style="margin-bottom:16px; display:none">
+    <div class="card-title">📊 Classification Result</div>
+    <div class="summary-grid">
+      <div class="summary-box"><div class="num" id="uc-count-costed">0</div><div class="lbl">Has Finished Cost</div></div>
+      <div class="summary-box"><div class="num" id="uc-count-delivered">0</div><div class="lbl">Delivered, No Email</div></div>
+      <div class="summary-box"><div class="num" id="uc-count-other">0</div><div class="lbl">Other Statuses</div></div>
+      <div class="summary-box"><div class="num" id="uc-count-notfound">0</div><div class="lbl">Not Found Anywhere</div></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-success" id="uc-btn-costed" onclick="downloadUncostedCategory('costed')" disabled>⬇️ Finished Cost (بالتصنيع)</button>
+      <button class="btn btn-success" id="uc-btn-delivered" onclick="downloadUncostedCategory('delivered')" disabled>⬇️ Delivery Without Email</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" id="uc-btn-other" onclick="downloadUncostedCategory('other')" disabled>⬇️ Other Statuses</button>
+      <button class="btn btn-outline" id="uc-btn-notfound" onclick="downloadUncostedCategory('notfound')" disabled>⬇️ Not Found Anywhere</button>
+    </div>
+  </div>
+
+</div>
+<!-- /tab-uncosted -->
+
 </div>
 <!-- /maintab-cost -->
 
@@ -1054,9 +1114,11 @@ function switchTab(name) {
   document.getElementById('tab-transfer').style.display = name === 'transfer' ? 'block' : 'none';
   document.getElementById('tab-reconcile').style.display = name === 'reconcile' ? 'block' : 'none';
   document.getElementById('tab-namematch').style.display = name === 'namematch' ? 'block' : 'none';
+  document.getElementById('tab-uncosted').style.display = name === 'uncosted' ? 'block' : 'none';
   document.getElementById('tabbtn-transfer').classList.toggle('active', name === 'transfer');
   document.getElementById('tabbtn-reconcile').classList.toggle('active', name === 'reconcile');
   document.getElementById('tabbtn-namematch').classList.toggle('active', name === 'namematch');
+  document.getElementById('tabbtn-uncosted').classList.toggle('active', name === 'uncosted');
 }
 
 const MAIN_TAB_INFO = {
@@ -1095,20 +1157,42 @@ function switchSupplierSubTab(name) {
   document.getElementById('subtabbtn-aging').classList.toggle('active', name === 'aging');
 }
 
-// The password check is done against a hash stored in a private GitHub
-// Gist, not a value baked into this file. This means the password can be
+// The credential check is done against a list stored in a private GitHub
+// Gist, not values baked into this file. This means credentials can be
 // changed at any time from any browser (just edit the Gist) without ever
 // touching or redistributing this app — every copy checks the same Gist on
 // login. It does mean an internet connection is required at login time
 // only; nothing else in the app depends on the network.
+//
+// Gist format (each entry maps one code to one access level):
+// { "users": [
+//     { "passwordHash": "...", "access": "cost" },
+//     { "passwordHash": "...", "access": "full" }
+// ] }
+// "access" is "full" (every tab) or "cost" (Cost tab only). Older Gists
+// with just {"passwordHash": "..."} still work and grant full access.
 const LOCK_HASH_URL = 'https://gist.githubusercontent.com/redaabdelkaderabdellatif-sketch/948e642e38bd9833399c1e2469300b58/raw/gaty-lock.json';
 
-async function fetchRemotePasswordHash() {
+state.accessLevel = 'full';
+
+async function fetchRemoteUsers() {
   const res = await fetch(LOCK_HASH_URL, { cache: 'no-store' });
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const data = await res.json();
-  if (!data || typeof data.passwordHash !== 'string') throw new Error('Malformed lock file');
-  return data.passwordHash;
+  if (data && Array.isArray(data.users)) return data.users;
+  if (data && typeof data.passwordHash === 'string') return [{ passwordHash: data.passwordHash, access: 'full' }];
+  throw new Error('Malformed lock file');
+}
+
+// Hides everything but the Cost tab and locks the app onto it, for a
+// "cost"-level login. Full-access logins leave the normal tab set alone.
+function applyAccessRestrictions() {
+  if (state.accessLevel === 'full') return;
+  ['maintabbtn-suppliers', 'maintabbtn-workshop', 'maintabbtn-inventory'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.style.display = 'none';
+  });
+  switchMainTab('cost');
 }
 
 async function checkPassword() {
@@ -1120,10 +1204,14 @@ async function checkPassword() {
   if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
 
   try {
-    const remoteHash = await fetchRemotePasswordHash();
-    if (sha256Hex(input.value) === remoteHash) {
+    const users = await fetchRemoteUsers();
+    const hash = sha256Hex(input.value);
+    const match = users.find(u => u.passwordHash === hash);
+    if (match) {
+      state.accessLevel = match.access === 'cost' ? 'cost' : 'full';
       document.getElementById('lock-overlay').style.display = 'none';
       document.getElementById('app-content').style.display = 'block';
+      applyAccessRestrictions();
       return;
     }
     err.textContent = 'Incorrect password';
@@ -1907,6 +1995,271 @@ function downloadNameMatchResult() {
   XLSX.utils.book_append_sheet(wb, ws, 'Matching');
   XLSX.writeFile(wb, `Matching_${state.namematchResult.ref}.xlsx`);
   namematchLog('Matching file downloaded', 'ok');
+}
+
+// ===== Uncosted Orders (طلبات لم تُكلّف) =====
+// Cross-references the Final sheet's order references against a Finished
+// Cost sheet and a multi-sheet Order Status workbook, to triage which
+// orders already have a finished cost document vs. which don't and need
+// follow-up based on their delivery status.
+
+state.uncosted = { final: null, cost: null, status: null, result: null };
+
+function uncostedLog(msg, type = '') {
+  const el = document.getElementById('uncosted-log');
+  const line = document.createElement('div');
+  line.className = type ? `log-${type}` : '';
+  line.textContent = `[${new Date().toLocaleTimeString('en-US')}] ${msg}`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+// Finished Cost sheet: a small, simply-laid-out sheet whose header row
+// isn't always row 1, with a column combining "SALES ORDER OR SHOWROOM
+// (QUTO) NUMBER" (sometimes misspelled "OERDER") in one cell — detected by
+// a cell containing both "sales" and "order"/"oerder"/"quto".
+function parseFinishedCostSheet(raw) {
+  let headerRowIdx = -1, refCol = -1, costDocCol = -1, dateCol = -1, descCol = -1;
+
+  for (let i = 0; i < Math.min(10, raw.length); i++) {
+    const row = raw[i];
+    if (!row) continue;
+    for (let c = 0; c < row.length; c++) {
+      const cell = String(row[c] || '').toLowerCase().replace(/\s+/g, ' ');
+      if (cell.includes('sales') && (cell.includes('order') || cell.includes('oerder') || cell.includes('quto'))) {
+        refCol = c;
+      }
+      if (cell.includes('cost document') && cell.includes('number')) costDocCol = c;
+      if (cell.includes('date of done') || (cell.includes('date') && cell.includes('cost'))) dateCol = c;
+      if (cell.includes('decription') || cell.includes('description')) descCol = c;
+    }
+    if (refCol !== -1) { headerRowIdx = i; break; }
+  }
+  if (headerRowIdx === -1) return null;
+
+  const refs = new Set();
+  const rows = [];
+  for (let i = headerRowIdx + 1; i < raw.length; i++) {
+    const row = raw[i];
+    if (!row || row.every(v => v === null || v === undefined || v === '')) continue;
+    const refVal = String(row[refCol] ?? '').trim();
+    if (!refVal) continue;
+    refs.add(refVal);
+    rows.push({
+      ref: refVal,
+      costDocNumber: costDocCol !== -1 ? String(row[costDocCol] ?? '').trim() : '',
+      date: dateCol !== -1 ? row[dateCol] : null,
+      desc: descCol !== -1 ? String(row[descCol] ?? '').trim() : ''
+    });
+  }
+  return { refs, rows };
+}
+
+const UC_STATUS_HEADERS = {
+  workOrder: ['work order no', 'work order'],
+  deliveryDate: ['delivery date', 'delivery  date'],
+  emailDate: ['email date', 'drive /email date', 'drive  email date', 'drive/email date'],
+  packing: ['packing'],
+  paymentMode: ['payment mode'],
+  deliveryStatus: ['delivery status']
+};
+
+function findUcStatusHeaderRow(raw) {
+  for (let i = 0; i < Math.min(10, raw.length); i++) {
+    const row = raw[i];
+    if (!row) continue;
+    const normCells = row.map(v => String(v || '').toLowerCase().replace(/[.]/g, '').replace(/\s+/g, ' ').trim());
+    const findCol = candidates => {
+      for (const cand of candidates) {
+        const idx = normCells.findIndex(c => c === cand);
+        if (idx !== -1) return idx;
+      }
+      for (const cand of candidates) {
+        const idx = normCells.findIndex(c => c.includes(cand));
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    };
+    const workOrderCol = findCol(UC_STATUS_HEADERS.workOrder);
+    if (workOrderCol === -1) continue;
+    return {
+      headerRowIdx: i,
+      workOrderCol,
+      deliveryDateCol: findCol(UC_STATUS_HEADERS.deliveryDate),
+      emailDateCol: findCol(UC_STATUS_HEADERS.emailDate),
+      packingCol: findCol(UC_STATUS_HEADERS.packing),
+      paymentModeCol: findCol(UC_STATUS_HEADERS.paymentMode),
+      deliveryStatusCol: findCol(UC_STATUS_HEADERS.deliveryStatus)
+    };
+  }
+  return null;
+}
+
+// Scans every sheet in the workbook (sheets with no "Work Order" column —
+// dashboards, charts, pivots — are naturally skipped) and merges everything
+// found into one lookup keyed by order reference. Column positions vary
+// sheet to sheet, so each sheet is detected independently; whichever of the
+// 5 optional columns a given sheet doesn't have are simply left blank for
+// rows from that sheet.
+function parseOrderStatusWorkbook(wb) {
+  const map = {};
+  wb.SheetNames.forEach(sheetName => {
+    const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: null });
+    const hdr = findUcStatusHeaderRow(raw);
+    if (!hdr) return;
+
+    for (let i = hdr.headerRowIdx + 1; i < raw.length; i++) {
+      const row = raw[i];
+      if (!row || row.every(v => v === null || v === undefined || v === '')) continue;
+      const workOrder = String(row[hdr.workOrderCol] ?? '').trim();
+      if (!workOrder) continue;
+      if (map[workOrder]) continue; // first sheet to mention an order wins
+
+      map[workOrder] = {
+        deliveryDate: hdr.deliveryDateCol !== -1 ? row[hdr.deliveryDateCol] : null,
+        emailDate: hdr.emailDateCol !== -1 ? row[hdr.emailDateCol] : null,
+        packing: hdr.packingCol !== -1 ? row[hdr.packingCol] : null,
+        paymentMode: hdr.paymentModeCol !== -1 ? row[hdr.paymentModeCol] : null,
+        deliveryStatus: hdr.deliveryStatusCol !== -1 ? String(row[hdr.deliveryStatusCol] ?? '').trim() : '',
+        sheet: sheetName
+      };
+    }
+  });
+  return map;
+}
+
+function handleUncostedFile(kind, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+
+      if (kind === 'final') {
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+        const parsed = parseFile('n', raw);
+        if (!parsed.parsed.length) throw new Error("Couldn't find any رقم المرجع rows — check this is the النهائي file");
+        state.uncosted.final = parsed.parsed;
+        document.getElementById('stats-uc-final').innerHTML = `<div class="stat-chip">Rows: <span>${parsed.parsed.length}</span></div>`;
+      } else if (kind === 'cost') {
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+        const parsed = parseFinishedCostSheet(raw);
+        if (!parsed) throw new Error("Couldn't find a sales-order column — check this is the finished cost sheet");
+        state.uncosted.cost = parsed;
+        document.getElementById('stats-uc-cost').innerHTML = `<div class="stat-chip">Orders: <span>${parsed.refs.size}</span></div>`;
+      } else if (kind === 'status') {
+        const map = parseOrderStatusWorkbook(wb);
+        if (Object.keys(map).length === 0) throw new Error("Couldn't find a Work Order column in any sheet");
+        state.uncosted.status = map;
+        document.getElementById('stats-uc-status').innerHTML = `<div class="stat-chip">Orders: <span>${Object.keys(map).length}</span></div>`;
+      }
+
+      document.getElementById(`fname-uc-${kind}`).textContent = '✓ ' + file.name;
+      document.getElementById(`fname-uc-${kind}`).classList.add('show');
+      document.getElementById(`zone-uc-${kind}`).classList.add('loaded');
+      uncostedLog(`Loaded ${file.name}`, 'ok');
+
+      if (state.uncosted.final && state.uncosted.cost && state.uncosted.status) {
+        runUncostedAnalysis();
+      }
+    } catch (err) {
+      uncostedLog(`Error reading file: ${err.message}`, 'err');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function runUncostedAnalysis() {
+  const { final, cost, status } = state.uncosted;
+  const buckets = { costed: [], delivered: [], other: [], notfound: [] };
+
+  // Group the Final sheet's transaction lines by reference first, so every
+  // line for a given order lands in the same bucket.
+  const byRef = {};
+  final.forEach(item => {
+    if (!byRef[item.ref]) byRef[item.ref] = [];
+    byRef[item.ref].push(item);
+  });
+
+  Object.keys(byRef).forEach(ref => {
+    const lines = byRef[ref];
+    if (cost.refs.has(ref)) {
+      const costInfo = cost.rows.find(r => r.ref === ref);
+      lines.forEach(line => buckets.costed.push({ ...line, costDocNumber: costInfo ? costInfo.costDocNumber : '', costDocDate: costInfo ? costInfo.date : null }));
+      return;
+    }
+    const statusInfo = status[ref];
+    if (statusInfo) {
+      const target = /delivered/i.test(statusInfo.deliveryStatus) ? buckets.delivered : buckets.other;
+      lines.forEach(line => target.push({ ...line, ...statusInfo }));
+      return;
+    }
+    lines.forEach(line => buckets.notfound.push(line));
+  });
+
+  state.uncosted.result = buckets;
+  renderUncostedResult();
+}
+
+function renderUncostedResult() {
+  const { costed, delivered, other, notfound } = state.uncosted.result;
+  const uniqueRefs = arr => new Set(arr.map(r => r.ref)).size;
+
+  document.getElementById('uc-count-costed').textContent = uniqueRefs(costed);
+  document.getElementById('uc-count-delivered').textContent = uniqueRefs(delivered);
+  document.getElementById('uc-count-other').textContent = uniqueRefs(other);
+  document.getElementById('uc-count-notfound').textContent = uniqueRefs(notfound);
+
+  document.getElementById('uc-btn-costed').disabled = costed.length === 0;
+  document.getElementById('uc-btn-delivered').disabled = delivered.length === 0;
+  document.getElementById('uc-btn-other').disabled = other.length === 0;
+  document.getElementById('uc-btn-notfound').disabled = notfound.length === 0;
+
+  document.getElementById('uncosted-result-card').style.display = 'block';
+  uncostedLog(`Classified ${uniqueRefs(costed)} costed, ${uniqueRefs(delivered)} delivered-no-email, ${uniqueRefs(other)} other-status, ${uniqueRefs(notfound)} not-found orders`, 'ok');
+}
+
+function fmtUcDate(v) {
+  if (!v) return '';
+  if (v instanceof Date) return v.toISOString().split('T')[0];
+  return String(v);
+}
+
+function downloadUncostedCategory(category) {
+  if (!state.uncosted.result) return;
+  const rows = state.uncosted.result[category];
+  if (!rows || rows.length === 0) return;
+
+  const wb = XLSX.utils.book_new();
+  let headers, data, sheetName, filePrefix;
+
+  if (category === 'costed') {
+    headers = ['Doc No.', 'Ref No.', 'Item Code', 'Description', 'Qty', 'Unit', 'Price', 'Amount', 'Cost Doc Number', 'Cost Doc Date'];
+    data = rows.map(r => [r.doc, r.ref, r.code, r.desc, r.qty, r.unit, r.price, r.amount, r.costDocNumber, fmtUcDate(r.costDocDate)]);
+    sheetName = 'Finished Cost';
+    filePrefix = 'FinishedCost';
+  } else if (category === 'notfound') {
+    headers = ['Doc No.', 'Ref No.', 'Item Code', 'Description', 'Qty', 'Unit', 'Price', 'Amount'];
+    data = rows.map(r => [r.doc, r.ref, r.code, r.desc, r.qty, r.unit, r.price, r.amount]);
+    sheetName = 'Not Found';
+    filePrefix = 'NotFound';
+  } else {
+    headers = ['Doc No.', 'Ref No.', 'Item Code', 'Description', 'Qty', 'Unit', 'Price', 'Amount', 'Work Order', 'Email Date', 'Packing', 'Payment Mode', 'Delivery Date', 'Delivery Status'];
+    data = rows.map(r => [r.doc, r.ref, r.code, r.desc, r.qty, r.unit, r.price, r.amount, r.ref, fmtUcDate(r.emailDate), r.packing || '', r.paymentMode || '', fmtUcDate(r.deliveryDate), r.deliveryStatus || '']);
+    sheetName = category === 'delivered' ? 'Delivered No Email' : 'Other Statuses';
+    filePrefix = category === 'delivered' ? 'DeliveredNoEmail' : 'OtherStatuses';
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+  ws['!cols'] = headers.map(() => ({ wch: 16 }));
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+  const today = new Date().toISOString().split('T')[0];
+  XLSX.writeFile(wb, `${filePrefix}_${today}.xlsx`);
+  uncostedLog(`Downloaded ${sheetName}`, 'ok');
 }
 
 // ===== Supplier Debt Aging (from a general ledger export) =====
@@ -3370,6 +3723,25 @@ function downloadResult() {
     }
   });
 })();
+
+// Drag and drop for the 3 Uncosted Orders upload zones
+['final', 'cost', 'status'].forEach(kind => {
+  const zone = document.getElementById(`zone-uc-${kind}`);
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag');
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      const input = document.getElementById(`file-uc-${kind}`);
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      handleUncostedFile(kind, input);
+    }
+  });
+});
 </script>
 </body>
 </html>
